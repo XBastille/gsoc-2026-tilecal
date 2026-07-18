@@ -73,9 +73,8 @@
       <h2>The constraint</h2>
       <p>If this were pure regression it would be easy. The catch is where the answer has to be computed.</p>
       <p>Reconstruction runs in the TilePPr firmware on a Xilinx Kintex UltraScale FPGA
-        (<code>xcku115-flva1517-2-e</code>) and the model is instantiated <strong>once per channel</strong>. So a
-        network is not small because it has few parameters. It is small because 77 copies of it have to fit
-        on a board nobody is going to replace.</p>
+        (<code>xcku115-flva1517-2-e</code>) and the model is instantiated <strong>once per channel</strong>. That
+        instantiation is what sets the size limit. 77 copies have to fit on a board nobody is going to replace.</p>
       <p>The latency figure is easy to misread. TilePPr allots 225 ns, 9 bunch crossings, to <em>energy
           reconstruction + sample delay</em>, inside a 1.7 µs trigger budget. That is not 225 ns of compute. A
         9-sample window takes 9 bunch crossings just to collect, so the budget is dominated by waiting for
@@ -161,8 +160,8 @@
           class="cite">1</a>] and on high gain it beats ours. So why not just take theirs? It solves a slightly
         different problem. It picks one gain per crossing, LG x 40 where high gain saturates, discarding the other
         where ours keeps both, PReLU rather than a free bit shift, float, with no quantised version reported, 1 cell,
-        where ours covers A1 to A5 with one set of weights and a different pipeline and sample. Not the worse model,
-        a different point on the same trade-off and our 91 parameters may pay for that breadth.</p>
+        where ours covers A1 to A5 with one set of weights and a different pipeline and sample. It sits at a different
+        point on the same trade-off, and our 91 parameters may pay for that breadth.</p>
       <p>I am also not claiming a win over 72.12. Read the code behind that number and it is a <strong>global</strong>
         standard deviation not a band, so the matched comparison is his 72.12 against our global, which is 95.3 for the
         91-parameter student and 63.0 for the 1005-parameter teacher that is far too large to deploy. At a matched
