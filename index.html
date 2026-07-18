@@ -43,7 +43,7 @@
         <dd><a href="https://summerofcode.withgoogle.com/programs/2026/projects/yvrxn4JI">Google Summer of Code 2026,
             CERN-HSF</a></dd>
         <dt>Date</dt>
-        <dd>13 July 2026 &middot; midterm</dd>
+        <dd>17 July 2026 &middot; midterm</dd>
       </dl>
       <img class="orgs" src="figures/orgs.png">
     </header>
@@ -273,8 +273,8 @@
       <p>One earlier conclusion changed here. I had told my mentors the weights were not the bottleneck, on the strength
         of 6-bit weights being worse than 8-bit. That sweep only ever went downward. The headroom turned out to be
         upward and going from w8 to w16 buys 22 ADC of band.</p>
-      <p>Then the row I keep staring at. <strong>The 16-bit quantised model, at 116, beats the float32 model it was
-          distilled from, at 127.</strong> That is not supposed to happen. The obvious suspect was that the quantised
+      <p>Then the row I keep staring at. <strong>The 16-bit quantised model at 116, beats the float32 model it was
+          distilled from at 127.</strong> That is not supposed to happen. The obvious suspect was that the quantised
         runs also dropped the distillation teacher and finishing on pure truth is a known free improvement. So I ran the
         control, continuing the float model with the teacher off and everything else identical. It came back at 127.3.
         Teacher removal is ruled out, whatever is happening lives in the quantisation path and at 16 bits the rounding
