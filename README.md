@@ -1,2 +1,2 @@
-# GSoC 2026 blog — AI-Accelerated Signal Reconstruction for the ATLAS Tile Calorimeter
+# gsoc-2026-tilecal
 
