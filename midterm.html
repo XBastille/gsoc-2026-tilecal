@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI-Accelerated Signal Reconstruction for the ATLAS Tile Calorimeter at the HL-LHC</title>
+  <meta name="description"
+    content="The ATLAS Tile Calorimeter has to turn 7 digitised samples into an energy measurement, 40 million times a second, inside an FPGA. At the High-L">
+  <meta property="og:title" content="AI-Accelerated Signal Reconstruction for the ATLAS Tile Calorimeter at the HL-LHC">
+  <meta property="og:description"
+    content="The ATLAS Tile Calorimeter has to turn 7 digitised samples into an energy measurement, 40 million times a second, inside an FPGA. At the High-Luminosity LHC the algorithm currently doing that j">
+  <meta property="og:type" content="article">
+  <link rel="icon" href="https://avatars.githubusercontent.com/u/148121344?s=64&amp;v=4">
+  <link rel="apple-touch-icon" href="https://avatars.githubusercontent.com/u/148121344?s=180&amp;v=4">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Serif:ital,wght@0,400;0,500;0,600;1,400&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <div class="wrap">
+
+    <nav class="sitenav"><a href="index.html">&larr; All posts</a></nav>
+
+    <header class="masthead">
+      <h1>AI-Accelerated Signal Reconstruction for the ATLAS Tile Calorimeter at the HL-LHC</h1>
+      <p class="standfirst">The ATLAS Tile Calorimeter has to turn 7 digitised samples into an energy measurement,
+        40 million times a second, inside an FPGA. At the High-Luminosity LHC the algorithm currently doing that job
+        starts to fall apart. I am spending the summer trying to replace it with a neural network small enough to fit.
+      </p>
+      <dl class="byline">
+        <dt>Author</dt>
+        <dd><a href="https://github.com/XBastille">XBastille</a></dd>
+        <dt>Affiliation</dt>
+        <dd><a href="https://tilecal.ific.uv.es/tilecalweb/">IFIC</a> (CSIC / Universitat de Val&egrave;ncia) &middot;
+          <a href="https://atlas.cern/">ATLAS</a> <a href="https://atlas-tile.web.cern.ch/">TileCal</a></dd>
+        <dt>Mentors</dt>
+        <dd><a href="https://gitlab.cern.ch/lfiorini">Luca Fiorini</a>, <a
+            href="https://gitlab.cern.ch/fcarrio">Fernando Carri&oacute;</a></dd>
+        <dt>Programme</dt>
+        <dd><a href="https://summerofcode.withgoogle.com/programs/2026/projects/yvrxn4JI">Google Summer of Code 2026,
+            CERN-HSF</a></dd>
+        <dt>Date</dt>
+        <dd>17 July 2026 &middot; midterm</dd>
+      </dl>
+      <div class="linkbar">
+        <a href="https://github.com/XBastille/tilecal-nn-signal-reconstruction"><span
+            class="lb-key">code</span> the pipeline</a>
+        <a href="https://github.com/XBastille/atlas-tilecal-linear-reconstruction"><span
+            class="lb-key">slides</span> every talk and figure</a>
+        <a href="https://gitlab.cern.ch/atlas/athena/-/merge_requests/90138"><span
+            class="lb-key">merged</span> into ATLAS Athena</a>
+      </div>
+      <img class="orgs" src="figures/orgs.png">
+    </header>
+
+    <main>
+      <h2>Introduction</h2>
+      <p>Hello!! 👋 I am Bibhor Puhan a.k.a. XBastille. This summer I am working with the <a
+          href="https://atlas-tile.web.cern.ch/">Tile Calorimeter</a> group at IFIC in Valencia on the detector's energy
+        reconstruction, through Google Summer of Code with CERN-HSF.</p>
+      <p>We are at the halfway mark. A good part of it works, there is 1 result I am happy about and cannot yet
+        explain and a few conclusions shifted as the evidence came in. All 3 are below.</p>
+      <h2>What the detector has to do</h2>
+      <p>The Tile Calorimeter (TileCal) [<a href="#ref-2" class="cite">2</a>] measures the energy of hadronic showers.
+        Light from scintillating tiles reaches photomultipliers and the pulse is digitised at 40 MHz. Each pulse spreads
+        over about 7 samples and the readout has to pull 3 things out of it, the pedestal, the amplitude
+        (proportional to deposited energy) and the phase.</p>
+      <p>The algorithm in the detector today is Optimal Filtering, a 7-coefficient linear filter. It is genuinely
+        good under the assumption it was designed for, that the noise is stationary and Gaussian.</p>
+      <p>At the HL-LHC that assumption fails. With around 200 proton-proton interactions per bunch crossing (µ = 200)
+        the dominant noise is no longer electronics, it is other collisions. Bunch crossings are independent events but
+        the pulses last about 7 of them and overlap. So <strong>a bunch crossing whose true energy is zero can still
+          show a large ADC value</strong>, purely from its neighbours bleeding in. That is out-of-time pile-up, it is
+        not Gaussian and OF has no way to see it coming [<a href="#ref-3" class="cite">3</a>]. The quiet events turn out
+        to be the tricky ones, which sounds backwards until you look at the data.</p>
+      <p>It is also why the network gets a 9-sample window rather than 7. It needs context on both sides of the
+        crossing it is being asked about.</p>
+      <h2>The constraint</h2>
+      <p>If this were pure regression it would be easy. The catch is where the answer has to be computed.</p>
+      <p>Reconstruction runs in the TilePPr firmware on a Xilinx Kintex UltraScale FPGA
+        (<code>xcku115-flva1517-2-e</code>) and the model is instantiated <strong>once per channel</strong>. That
+        instantiation is what sets the size limit. 77 copies have to fit on a board nobody is going to replace.</p>
+      <p>The latency figure is easy to misread. TilePPr allots 225 ns, 9 bunch crossings, to <em>energy
+          reconstruction + sample delay</em>, inside a 1.7 µs trigger budget. That is not 225 ns of compute. A
+        9-sample window takes 9 bunch crossings just to collect, so the budget is dominated by waiting for
+        samples. What actually binds is throughput, an initiation interval of 1 bunch crossing, 25 ns, because at 40
+        MHz the data never stops arriving.</p>
+      <h2>The data and the input that changed the project</h2>
+      <p>Everything here is simulation, from the TileCal Pulse Simulator at µ = 200 [<a href="#ref-4"
+          class="cite">4</a>], minimum-bias pile-up with a 5% flat signal injection biased toward high gain so the
+        dynamic range is populated. About 230,000 consecutive bunch crossings (23 runs of 10,000), long-barrel A-layer
+        cells A1 to A5, split 70 / 15 / 15. The 9-sample sliding window over the A1 to A5 channels turns that into about
+        71M kept windows, roughly 24% surviving the saturation, out-of-range and low-energy cuts. The published
+        reference [<a href="#ref-1" class="cite">1</a>] was measured on single-cell A1, ours spans A1 to A5, a
+        difference worth holding onto for the comparison later. Everything is in ADC counts, not GeV and there is no
+        real data and no test beam yet.</p>
+      <p>TileCal reads every channel in 2 gains, high and low, separated by a factor of about 40. My first instinct
+        was 2 input channels and 2 targets. It produced numbers.</p>
+      <p>In the meeting on 3 June, Alberto Valero suggested something better. Concatenate the gains into a
+        <strong>single 24-bit integer per sample</strong>, high gain in the low 12 bits, low gain in the high 12
+        and regress 1 target. Luca formalised it as</p>
+      <p class="eq"><var>S</var><span class="op">=</span><span class="w">HG</span><span class="op">+</span>4096<span
+          class="op">·</span><span class="w">LG</span></p>
+      <p>It is better for a reason worth stating carefully. A 2-channel design carries both gains but leaves the
+        network to work out which one to trust and hands back 2 outputs to calibrate. The reference instead picks 1
+        gain per crossing and discards the other. The concatenated form does <strong>neither</strong>. Both gains
+        survive intact inside 1 number, against 1 target, with nothing thrown away before the network starts. That is
+        the largest architectural decision in the project and it was not mine.</p>
+      <h2>Where things stand</h2>
+      <p>The OF numbers below are not quoted from a paper. The OF weights ship with the simulation and the preprocessing
+        applies them per window, so OF and the network are scored on identical bunch crossings under identical
+        selection. A baseline evaluated on a different population is not a baseline.</p>
+      <p>The metric comes from Luca. A single standard deviation over the whole test set is misleading here, because
+        most bunch crossings sit at very low energy, over half below 5 LG ADC, so a global number mostly measures how
+        the
+        model does on almost-empty events. Instead we bin by energy, take the standard deviation in each bin and report
+        the mean of those. I call it the <em>band</em>. High-gain ADC counts, lower is better.</p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Parameters</th>
+              <th>Band (HG ADC)</th>
+              <th>Global std (HG ADC)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Optimal Filtering (deployed)</td>
+              <td>n/a</td>
+              <td>890.6</td>
+              <td>979.2</td>
+            </tr>
+            <tr>
+              <td>91-param student, trained alone</td>
+              <td>91</td>
+              <td>164.8</td>
+              <td>105.9</td>
+            </tr>
+            <tr class="key">
+              <td>91-param student, distilled</td>
+              <td>91</td>
+              <td>127.0</td>
+              <td>95.3</td>
+            </tr>
+            <tr>
+              <td>1005-param teacher</td>
+              <td>1005</td>
+              <td>85.8</td>
+              <td>63.0</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The deployable network is about 7 times tighter than the algorithm it would replace and distillation [<a
+          href="#ref-5" class="cite">5</a>] from the larger teacher buys roughly 23% of band over training the same 91
+        parameters from scratch. That is the part I am pleased with, because 91 parameters is a brutal budget. The
+        teacher and the reconstruction pipeline went in as merge request <code>!16</code>, the 91-parameter student and
+        the distillation code as <code>!17</code>. The repository is ATLAS-internal, so I cannot link them here. I
+        presented these results to the ATLAS TileCal Data Preparation and Performance meeting on 6 July (<a
+          href="https://cernbox.cern.ch/s/RMqqPoBQl3o48Mx">slides</a>).</p>
+      <p>2 caveats and they matter.</p>
+      <p>The IFIC group already has a published reference CNN at 147 parameters, quoted at 72.12 [<a href="#ref-1"
+          class="cite">1</a>] and on high gain it beats ours. So why not just take theirs? It solves a slightly
+        different problem. It picks one gain per crossing, LG x 40 where high gain saturates, discarding the other
+        where ours keeps both, PReLU rather than a free bit shift, float, with no quantised version reported, 1 cell,
+        where ours covers A1 to A5 with one set of weights and a different pipeline and sample. It sits at a different
+        point on the same trade-off, and our 91 parameters may pay for that breadth.</p>
+      <p>I am also not claiming a win over 72.12. Read the code behind that number and it is a <strong>global</strong>
+        standard deviation not a band, so the matched comparison is his 72.12 against our global, which is 95.3 for the
+        91-parameter student and 63.0 for the 1005-parameter teacher that is far too large to deploy. At a matched
+        parameter budget he is ahead on high gain and I will leave it there. The populations differ too, his
+        single-cell A1 against our A1 to A5. The number I would defend is low gain, our global 3.43 against his 8.36,
+        where both are the high-gain-saturated events.</p>
+      <p>And the network is not magic. It beats OF because OF was built for noise that no longer exists.</p>
+      <p>
+      <figure><img src="figures/cnn_architecture.png">
+        <figcaption>The reconstruction network. 1 concatenated dual-gain sample per bunch crossing feeds 2
+          convolutions and a linear head. Teacher and student are the same skeleton at 2 channel widths, 18/14 for
+          1005 parameters and 4/3 for 91.</figcaption>
+      </figure>
+      </p>
+      <p>Teacher and student are the same skeleton at 2 widths. 2 convolutions, 2 activations, 1 linear layer.
+        The kernel sizes matter, <code>k5</code> then <code>k3</code> gives the central crossing a receptive field of 7
+        of the 9 samples, roughly 1 pulse length. The activation is <code>LeakyReLU(0.25)</code>, chosen because a
+        slope of 1/4 is a 2-bit shift and should therefore cost no multiplier in firmware. Worth checking
+        rather than assuming, so I read the HLS C++ that <code>hls4ml</code> generated.</p>
+      <div class="codehilite" data-lang="C++">
+        <pre><span></span><code><span class="c1">// firmware/defines.h</span>
+<span class="k">typedef</span><span class="w"> </span><span class="n">ap_ufixed</span><span class="o">&lt;</span><span class="mi">1</span><span class="p">,</span><span class="mi">-1</span><span class="o">&gt;</span><span class="w"> </span><span class="n">param_t</span><span class="p">;</span><span class="w">   </span><span class="c1">// one bit, weight 2^-2: exactly 0.25</span>
+
+<span class="c1">// firmware/myproject.cpp</span>
+<span class="n">nnet</span><span class="o">::</span><span class="n">leaky_relu</span><span class="o">&lt;</span><span class="p">...</span><span class="o">&gt;</span><span class="p">(</span><span class="n">layer57_out</span><span class="p">,</span><span class="w"> </span><span class="mf">0.25</span><span class="p">,</span><span class="w"> </span><span class="n">layer44_out</span><span class="p">);</span>
+
+<span class="c1">// nnet_utils/nnet_activation.h</span>
+<span class="n">res</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">datareg</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">datareg</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">alpha</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">datareg</span><span class="p">;</span>
+</code></pre>
+      </div>
+
+      <p>The slope survives as a compile-time literal in a 1-bit container, not a lookup table. Zero DSP cost stays an
+        expectation until synthesis says otherwise.</p>
+      <p>
+      <figure><img src="figures/blog_kd_effect.png">
+        <figcaption>What distillation buys. Left, the band for the 91-parameter student trained alone, the same student
+          distilled and the 1005-parameter teacher. Right, the global sigma against the distillation weight. Lower
+          alpha means more teacher.</figcaption>
+      </figure>
+      </p>
+      <p>One thing about the distillation worth stating (<a
+          href="https://cernbox.cern.ch/s/IXAjxhKxRauKLTm">slides, 19 June</a>), because the convention reads backwards
+        at a glance. The loss is</p>
+      <p class="eq"><span class="w">loss</span><span class="op">=</span><var>α</var><span class="op">·</span><span
+          class="w">truth</span><span class="op">+</span>(1<span class="op">−</span><var>α</var>)<span
+          class="op">·</span><span class="w">teacher</span></p>
+      <p>so <var>α</var> weights the <em>truth</em> term, not the teacher and <var>α</var> = 0.3 is
+        <strong>70% teacher-matching</strong>. Worth saying out loud before anyone reads 0.3 as a light touch.</p>
+      <h2>Making it fit in fixed point</h2>
+      <p>Float32 is not going anywhere near an FPGA, so the second half of the project is quantisation-aware training
+        with Brevitas [<a href="#ref-6" class="cite">6</a>], export through QONNX [<a href="#ref-7" class="cite">7</a>]
+        to hls4ml [<a href="#ref-8" class="cite">8</a>, <a href="#ref-9" class="cite">9</a>], then synthesis. The rest
+        of this section is the <a href="https://cernbox.cern.ch/s/ZO4DMn81D4GzQWn">10 July deck</a>, compressed. Weight
+        width <code>w</code>, activation width <code>a</code>, band in high-gain ADC counts.</p>
+      <p>
+      <figure><img src="figures/bits_vs_error.png">
+        <figcaption>Resolution against quantisation bit width. Activations dominate at low precision but the weights
+          are not free either. The 16-bit weight point lands below the float reference, which is the result I cannot yet
+          explain.</figcaption>
+      </figure>
+      </p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Precision</th>
+              <th>Band (HG ADC)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>w8 / a8</td>
+              <td>441</td>
+            </tr>
+            <tr>
+              <td>w6 / a16</td>
+              <td>211</td>
+            </tr>
+            <tr>
+              <td>w8 / a12</td>
+              <td>163</td>
+            </tr>
+            <tr>
+              <td>w8 / a16</td>
+              <td>138</td>
+            </tr>
+            <tr class="key">
+              <td>w16 / a16</td>
+              <td>116</td>
+            </tr>
+            <tr>
+              <td>float32</td>
+              <td>127</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Plain 8-bit is unusable. For a while I blamed the concatenated input, since <span class="m"><var>S</var><span
+            class="op">=</span><span class="w">HG</span><span class="op">+</span>4096<span class="op">·</span><span
+            class="w">LG</span></span>
+        packs 4 orders of magnitude into 1 number and a per-tensor quantiser sets its scale by the large low-gain
+        values, crushing the small high-gain-only signals. That story did not survive being tested. Feeding a 16-bit
+        input while keeping 8 bits inside still bands and splitting the gains back into 2 channels barely moves it.
+        What actually binds is the <strong>last activation</strong>. The output lands on roughly 2<sup>act bits</sup>
+        levels spread across 0 to 4095, so 8 bits is about 256 levels, steps of about 16 ADC, which is exactly the
+        banding you see at low energy. Genuinely different small inputs come back with identical predictions. No input
+        transform adds output levels, which is why none of them helped.</p>
+      <p>One earlier conclusion changed here. I had told my mentors the weights were not the bottleneck, on the strength
+        of 6-bit weights being worse than 8-bit. That sweep only ever went downward. The headroom turned out to be
+        upward and going from w8 to w16 buys 22 ADC of band.</p>
+      <p>Then the row I keep staring at. <strong>The 16-bit quantised model at 116, beats the float32 model it was
+          distilled from at 127.</strong> That is not supposed to happen. The obvious suspect was that the quantised
+        runs also dropped the distillation teacher and finishing on pure truth is a known free improvement. So I ran the
+        control, continuing the float model with the teacher off and everything else identical. It came back at 127.3.
+        Teacher removal is ruled out, whatever is happening lives in the quantisation path and at 16 bits the rounding
+        noise is 1 part in 65,000, so "quantisation noise regularises" is a weak story I do not believe yet. My best
+        guess is the learned per-tensor input scale acting as a gain the float network lacks. A test that isolates it is
+        queued.</p>
+      <p>One caveat. On a 106-parameter sibling of this student, changing
+        nothing but the seed moved the band by 13.9 ADC, which is wider than the 11 ADC gap I am pointing at, so the
+        band on its own cannot settle this. What keeps me interested is that the validation loss and the global sigma
+        both move the same way and are far steadier across seeds. A second seed on the quantised run is queued as well.
+        For now it is a number I like with a mechanism I cannot name.</p>
+      <p>
+      <figure><img src="figures/port_fidelity.png">
+        <figcaption>The fixed-point port. Left, the hls4ml C-simulation reproduces the Brevitas band once the containers
+          are sized correctly. Right, bisecting the container width, where 12 integer bits is a hard floor and below it
+          the accumulator overflows.</figcaption>
+      </figure>
+      </p>
+      <p>On the export side, the hls4ml C-simulation now reproduces the Brevitas model <strong>bit-exactly</strong>, to
+        0.00 ADC. Left to itself hls4ml sizes the fixed-point containers automatically and the automatic choice was
+        wrong, giving 148 against Brevitas's 138. Bisecting the container width shows a hard floor at 12 integer bits,
+        below which the accumulator overflows and the band explodes to 569.</p>
+      <p>The residual that led me there is the real lesson. The training target is the low-gain energy and the high-gain
+        view is that number times 40, so a residual of 1.27 low-gain ADC counts, which looks like nothing, shows up
+        as 50.8 in the gain we actually report. That factor of 40 has now surfaced 3 separate times in 3
+        different disguises. I have started treating any small number in the target as a large number in waiting.</p>
+      <h2>What did not work</h2>
+      <p>Feature (hint) distillation, matching the student's intermediate layers to the teacher's, was Luca's
+        suggestion. Worse. Teacher-assistant distillation, an intermediate model to bridge the capacity gap. Worse.
+        Ensembling several teachers. Worse. At some point the accumulation stopped being disappointing and started being
+        informative. The 91-parameter student is probably at its <strong>capacity</strong> floor, not its knowledge
+        floor and no
+        cleverness in how the teacher talks to it will move a wall made of parameters.</p>
+      <p>Last week I found a warm-start bug that silently dropped the learned activation scales when resuming from a
+        checkpoint. The runs completed and produced plausible numbers. They were simply initialised wrong, so 2
+        experiments need re-running. The cause was a catch-all fallback that quietly absorbed the 1 case worth knowing
+        about and the code now raises instead of coping, because a crash costs seconds and a silent fallback costs GPU
+        hours.</p>
+      <p>That is the shape of every real bug this summer, the gain-mixing one, the fixed-point container, the warm
+        start. None of them crashed. All of them produced a plausible number. "It ran" is not evidence of anything.</p>
+      <h2>What is left</h2>
+      <p>Synthesis, first. There are no DSP, LUT or flip-flop numbers yet, which means I do not actually know that this
+        fits and I am wary of any claim that skips that step. Fernando has given me access to a machine with Vivado.</p>
+      <p>Then a decremental quantisation sweep, stepping 16 to 12 to 8 and warm-starting each run from the previous
+        <em>quantised</em> checkpoint rather than from float. Fernando's framing has stuck with me. A single
+        91-parameter model is trivially small. 77 of them and more cells later, is not and every flip-flop saved per
+        neuron gets multiplied by a number that keeps growing.
+      </p>
+      <p>Fernando has also asked for something I like more than the sweep. Rather than imposing a precision, make the
+        weight and activation bit widths <strong>trainable</strong> and warm-start from w16 / a16, so the network picks
+        its own precision per layer instead of having one handed to it. Left to itself it has no reason to give
+        anything up and the widths just sit near 16, so I formulated the technique as</p>
+      <p class="eq"><span class="w">loss</span><span class="op">=</span><span class="w">task</span><span
+          class="op">+</span><var>λ</var><span class="op">·</span><span class="w">Σ bits</span></p>
+      <p>where <var>λ</var> sets how hard the network is pushed to trade precision for resolution. The sweep tells you
+        what a uniform width costs. This tells you where the bits actually need to be.</p>
+      <p>After that, truncating the output word for the trigger link after the compute rather than by narrowing the last
+        layer during training, pole-zero correction for the baseline droop after large pulses and eventually Athena.</p>
+      <p>One thing from the first half is worth passing on. The most useful thing anyone did for me was settle the
+        metric before there were results to argue about. Left to myself I would have reported the global standard
+        deviation, which is what any training script hands you by default and also the number that flatters this model
+        hardest. Choosing how you will be judged, before you can see which choice makes you look better, turns out to be
+        most of the work.</p>
+      <h2>Thanks</h2>
+      <p>To Luca Fiorini and Fernando Carrió, generous with their time and precise with their corrections. To Alberto
+        Valero for the input encoding that reshaped the project. To Francesco Curcio, whose work is the reference I
+        measure against. And to CERN and the IFIC group for the compute, the access and the patience.</p>
+      <p>The synthesis numbers are next and they are the ones that decide whether any of this is deployable. I will
+        update this on the next blog when they land!!</p>
+      <h2>References</h2>
+      <div class="refs">
+        <ol>
+          <li id="ref-1">F. Curcio, on behalf of the ATLAS Tile Calorimeter system, <a
+              href="https://scipost.org/submissions/scipost_202509_00065v2/">Machine Learning-Based Energy
+              Reconstruction for the ATLAS Tile Calorimeter at HL-LHC</a>, SciPost Phys. Proc., EuCAIFCon 2025.</li>
+          <li id="ref-2">ATLAS Collaboration, <a href="https://doi.org/10.1088/1748-0221/3/08/S08003">The ATLAS
+              Experiment at the CERN Large Hadron Collider</a>, JINST 3 (2008) S08003.</li>
+          <li id="ref-3">D. Oliveira Gon&ccedil;alves, on behalf of the ATLAS Collaboration, <a
+              href="https://doi.org/10.1088/1742-6596/1525/1/012092">Energy reconstruction of the ATLAS Tile Calorimeter
+              under high pile-up conditions using the Wiener filter</a>, J. Phys. Conf. Ser. 1525 (2020) 012092.</li>
+          <li id="ref-4">ATLAS Collaboration, <a
+              href="https://twiki.cern.ch/twiki/bin/view/AtlasPublic/ApprovedPlotsTileUpgrades">Approved plots, Tile
+              Calorimeter upgrades</a>.</li>
+          <li id="ref-5">G. Hinton, O. Vinyals and J. Dean, <a href="https://arxiv.org/abs/1503.02531">Distilling the
+              Knowledge in a Neural Network</a>, arXiv:1503.02531.</li>
+          <li id="ref-6">Xilinx, <a href="https://github.com/Xilinx/brevitas">Brevitas</a>, a PyTorch library for
+            quantisation-aware training.</li>
+          <li id="ref-7">A. Pappalardo, Y. Umuroglu et al., <a href="https://arxiv.org/abs/2206.07527">QONNX:
+              Representing Arbitrary-Precision Quantized Neural Networks</a>, arXiv:2206.07527.</li>
+          <li id="ref-8">J. Duarte, S. Han et al., <a href="https://arxiv.org/abs/1804.06913">Fast inference of deep
+              neural networks in FPGAs for particle physics</a>, JINST 13 (2018) P07027.</li>
+          <li id="ref-9">T. Aarrestad, V. Loncar et al., <a href="https://arxiv.org/abs/2101.05108">Fast convolutional
+              neural networks on FPGAs with hls4ml</a>, arXiv:2101.05108.</li>
+        </ol>
+      </div>
+    </main>
+
+    <section class="about" id="about">
+      <h2 class="about-head">About Me</h2>
+
+      <div class="about-body">
+        <img class="about-avatar" src="https://avatars.githubusercontent.com/u/148121344?s=200&amp;v=4" width="96"
+          height="96">
+
+        <div class="about-text">
+          <p class="about-name">
+            XBastille
+            <a class="about-handle" href="https://github.com/XBastille">@XBastille</a>
+          </p>
+          <p class="about-bio">
+            I am an AI Researcher. My research focuses on Computer Vision, Generative Models
+            and Deep Learning for physics. I am currently serving as an Undergraduate / Summer
+            Student at CERN, IFIC and CSIC, as a Google Summer of Code 2026 Contributor with
+            CERN-HSF.
+          </p>
+        </div>
+      </div>
+
+      <dl class="about-stats" id="gh-stats">
+        <div>
+          <dt>Followers</dt>
+          <dd data-gh="followers">14</dd>
+        </div>
+        <div>
+          <dt>Repositories</dt>
+          <dd data-gh="repos">31</dd>
+        </div>
+        <div>
+          <dt>Stars earned</dt>
+          <dd data-gh="stars">67</dd>
+        </div>
+      </dl>
+
+      <p class="about-cta">
+        If this was useful, the rest of my work lives on GitHub.
+        <a class="about-button" href="https://github.com/XBastille">Follow @XBastille</a>
+      </p>
+    </section>
+
+    <script>
+      (async () => {
+        const set = (k, v) => {
+          const el = document.querySelector(`[data-gh="${k}"]`);
+          if (el && Number.isFinite(v)) el.textContent = v.toLocaleString();
+        };
+        try {
+          const [user, repos] = await Promise.all([
+            fetch("https://api.github.com/users/XBastille").then(r => r.ok ? r.json() : null),
+            fetch("https://api.github.com/users/XBastille/repos?per_page=100").then(r => r.ok ? r.json() : null),
+          ]);
+          if (user) {
+            set("followers", user.followers);
+            set("repos", user.public_repos);
+          }
+          if (Array.isArray(repos)) {
+            set("stars", repos.reduce((n, r) => n + r.stargazers_count, 0));
+          }
+        } catch (_) {}
+      })();
+    </script>
+
+    <footer>
+      <p>Written by XBastille for Google Summer of Code 2026 with CERN-HSF.
+        All figures and numbers come from simulation.
+      </p>
+    </footer>
+
+  </div>
+</body>
+
+</html>
