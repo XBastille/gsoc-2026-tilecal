@@ -4,12 +4,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GSoC 2026, AI-Accelerated Signal Reconstruction for the ATLAS Tile Calorimeter</title>
+  <title>XBastille</title>
   <meta name="description"
-    content="Google Summer of Code 2026 with CERN-HSF. Replacing Optimal Filtering in the ATLAS Tile Calorimeter readout with a 91-parameter quantised CNN that runs on the TilePPr FPGA. Midterm and final reports.">
-  <meta property="og:title" content="GSoC 2026, AI-Accelerated Signal Reconstruction for the ATLAS Tile Calorimeter">
+    content="Bibhor Puhan, a.k.a. XBastille. Deep learning, computer vision and lately the ATLAS detector. The site is under construction, the blog is live.">
+  <meta property="og:title" content="XBastille">
   <meta property="og:description"
-    content="Google Summer of Code 2026 with CERN-HSF. Replacing Optimal Filtering in the ATLAS Tile Calorimeter readout with a 91-parameter quantised CNN that runs on the TilePPr FPGA.">
+    content="Bibhor Puhan, a.k.a. XBastille. Deep learning, computer vision and lately the ATLAS detector. The site is under construction, the blog is live.">
   <meta property="og:type" content="website">
   <link rel="icon" href="https://avatars.githubusercontent.com/u/148121344?s=64&amp;v=4">
   <link rel="apple-touch-icon" href="https://avatars.githubusercontent.com/u/148121344?s=180&amp;v=4">
@@ -25,103 +25,40 @@
   <div class="wrap">
 
     <header class="masthead brandhead">
-      <p class="brand-kicker">XBastille</p>
-      <h1 class="brand">Blog<span class="dot">.</span></h1>
+      <p class="brand-kicker">Bibhor Puhan</p>
+      <h1 class="brand">XBastille<span class="dot">.</span></h1>
+      <p class="standfirst">Under construction. The blog is live, the rest of this site is not.</p>
     </header>
 
     <main>
-      <div class="postlist">
+      <nav class="index" aria-label="Site index">
 
-        <a class="post-card" href="final.html">
-          <p class="post-meta"><span class="post-tag">Final report</span><span>5 September 2026</span></p>
-          <p class="post-title">AI-Accelerated Signal Reconstruction for the ATLAS Tile Calorimeter at the HL-LHC</p>
-          <p class="post-dek">The whole project end to end. A 91-parameter quantised CNN placed and routed on the real
-            target FPGA covering all 77 channels with timing met, a bit-exact integer emulator of that firmware merged
-            into ATLAS Athena, and a pedestal correction that turned into a hunt for a truncated buffer in the
-            simulation. Includes what did not get finished and why.</p>
-          <span class="post-more">Read blog &rarr;</span>
+        <a class="index-row" href="blog/">
+          <span class="index-key">Blog</span>
+          <span class="index-dek">Long-form write-ups. Two posts so far, both from Google Summer of Code 2026 with
+            CERN-HSF, on putting a neural network inside the ATLAS Tile Calorimeter readout.</span>
         </a>
 
-        <a class="post-card" href="midterm.html">
-          <p class="post-meta"><span class="post-tag">Midterm</span><span>17 July 2026</span></p>
-          <p class="post-title">Where the project stood at the halfway mark</p>
-          <p class="post-dek">Why Optimal Filtering breaks down at HL-LHC pile-up, the dual-gain input encoding that
-            reshaped the project, knowledge distillation down to 91 parameters, and the first pass at quantisation,
-            including one result I was happy about and could not explain.</p>
-          <span class="post-more">Read blog &rarr;</span>
+        <a class="index-row" href="https://github.com/XBastille">
+          <span class="index-key">GitHub</span>
+          <span class="index-dek">Code, including the GSoC pipeline and the talk slides.</span>
         </a>
 
-      </div>
+        <div class="index-row is-soon">
+          <span class="index-key">Projects</span>
+          <span class="index-dek">Not written up yet.</span>
+        </div>
+
+        <div class="index-row is-soon">
+          <span class="index-key">About</span>
+          <span class="index-dek">Not written yet either.</span>
+        </div>
+
+      </nav>
     </main>
 
-    <section class="about" id="about">
-      <h2 class="about-head">About Me</h2>
-
-      <div class="about-body">
-        <img class="about-avatar" src="https://avatars.githubusercontent.com/u/148121344?s=200&amp;v=4" width="96"
-          height="96">
-
-        <div class="about-text">
-          <p class="about-name">
-            XBastille
-            <a class="about-handle" href="https://github.com/XBastille">@XBastille</a>
-          </p>
-          <p class="about-bio">
-            I am an AI Researcher. My research focuses on Computer Vision, Generative Models
-            and Deep Learning for physics. I am currently serving as an Undergraduate / Summer
-            Student at CERN, IFIC and CSIC, as a Google Summer of Code 2026 Contributor with
-            CERN-HSF.
-          </p>
-        </div>
-      </div>
-
-      <dl class="about-stats" id="gh-stats">
-        <div>
-          <dt>Followers</dt>
-          <dd data-gh="followers">14</dd>
-        </div>
-        <div>
-          <dt>Repositories</dt>
-          <dd data-gh="repos">31</dd>
-        </div>
-        <div>
-          <dt>Stars earned</dt>
-          <dd data-gh="stars">67</dd>
-        </div>
-      </dl>
-
-      <p class="about-cta">
-        If this was useful, the rest of my work lives on GitHub.
-        <a class="about-button" href="https://github.com/XBastille">Follow @XBastille</a>
-      </p>
-    </section>
-
-    <script>
-      (async () => {
-        const set = (k, v) => {
-          const el = document.querySelector(`[data-gh="${k}"]`);
-          if (el && Number.isFinite(v)) el.textContent = v.toLocaleString();
-        };
-        try {
-          const [user, repos] = await Promise.all([
-            fetch("https://api.github.com/users/XBastille").then(r => r.ok ? r.json() : null),
-            fetch("https://api.github.com/users/XBastille/repos?per_page=100").then(r => r.ok ? r.json() : null),
-          ]);
-          if (user) {
-            set("followers", user.followers);
-            set("repos", user.public_repos);
-          }
-          if (Array.isArray(repos)) {
-            set("stars", repos.reduce((n, r) => n + r.stargazers_count, 0));
-          }
-        } catch (_) {}
-      })();
-    </script>
-
     <footer>
-      <p>Written by XBastille for Google Summer of Code 2026 with CERN-HSF.
-        All figures and numbers come from simulation.
-      </p>
+      <p>Bibhor Puhan, 2026.</p>
     </footer>
 
   </div>
